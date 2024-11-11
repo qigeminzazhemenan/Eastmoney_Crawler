@@ -1,0 +1,11 @@
+__pycache__/
+.history/
+
+/Data/
+/test/
+
+venv/
+env/
+.venv/
+
+*.log
