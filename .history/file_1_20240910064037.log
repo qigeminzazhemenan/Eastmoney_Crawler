@@ -1,7 +1,0 @@
-2024-09-06 01:16:09.668 | DEBUG    | __main__:<module>:4 - That's it, beautiful and simple logging!{a}
-2024-09-06 01:18:03.506 | DEBUG    | __main__:<module>:4 - That's it, beautiful and simple logging!1
-2024-09-06 01:20:55.309 | WARNING  | __main__:<module>:4 - That's it, beautiful and simple logging!1
-2024-09-06 01:21:03.816 | ERROR    | __main__:<module>:4 - That's it, beautiful and simple logging!1
-2024-09-06 01:42:56.612 | ERROR    | __main__:<module>:6 - That's it, beautiful and simple logging!1a
-2024-09-06 10:46:04.991 | ERROR    | __main__:<module>:6 - That's it, beautiful and simple logging!1a
-2024-09-10 21:40:38.460 | ERROR    | __main__:<module>:6 - That's it, beautiful and simple logging!1a
