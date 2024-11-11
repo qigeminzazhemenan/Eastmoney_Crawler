@@ -1,92 +1,68 @@
 import sys
 import os
 from pathlib import Path
-import numpy as np
 import pandas as pd
 import datetime 
 import re
-import time
+import traceback
 from loguru import logger
 from Modules import *
 
 #---
 def main():
+    
     WorkPath = str(Path(os.path.realpath(__file__)).parent)
-    ModulePath = WorkPath+"\\Modules"
-    DataPath = WorkPath+"\\Data"
+    ModulePath = "{}\\Modules".format(WorkPath)
+    DataPath = "{}\\Data".format(WorkPath)
+    ResultPath = "{}\\Data\\Result".format(WorkPath)
+
     sys.path.append(ModulePath)
 
     #log dir
     logger.add('{}\\{}'.format(WorkPath,'log.log'), rotation="1 MB")
 
-    #end on today or yesterday
-    EndDate = datetime.date.today()
-    if time.localtime().tm_hour < 18:
-        Delta = datetime.timedelta(days=1)
-        EndDate = EndDate-Delta
-    #if exist hostory data, start from last day recorded
-    if os.listdir(DataPath):
-        History = pd.read_csv('{}\\{}'.format(DataPath,os.listdir(DataPath)[0]))
-        StartDate = max(History.loc[:'Date'])
-    else:
-    #if no history data, start from 365 days ago
-        Delta = datetime.timedelta(days=365)
-        StartDate = EndDate-Delta
-
-    StartDate = str(StartDate).replace('-','')
-    EndDate = str(EndDate).replace('-','')
-
     #get SSE Composite-----
-    CodeSSE = "000001"
-    KLineSSE = get_k_history(CodeSSE, StartDate, EndDate)
+    TableName = 'SSE'
+    SSECode = ['000001']
+    update_stock_table(TableName=TableName, Codes=SSECode)
 
     #get SSE Stocks ------
     # list of stock codes
-    Codes = [str(i) for i in range(600000,609000)]
+    TableName = 'SH_stocks'
+    StockCodesPath = "{}\\{}_codes.json".format(DataPath,TableName)
+    if os.path.exists(StockCodesPath):
+        with open(StockCodesPath) as File:
+            SHCodes = list(json.load(File))
+    else:
+        SHCodes = [str(i) for i in range(600000,609000)]
     #used for debug
-    Codes = [str(600000),str(600004)]
-
-    #write into stock table
-    KLines = pd.DataFrame()
-    for Code in Codes:
-        print(f'fetching kline data of: {Code} ')
-        KLineNew = get_k_history(Code, StartDate, EndDate)
-        KLines = pd.concat([KLines,KLineNew],ignore_index=True)
-    KLines.sort_values(by=['Stock Code','Date'])
-
-    #check if there is NaN
-    #Mask =KLines.groupby('Stock Code').apply(not_number)
+    #SHCodes = [str(600000),str(600004)]
     
-
-    #save
-    try:
-        StocksTable = '{}\\Stocks{}.csv'.format(DataPath,EndDate)
-        KLines.to_csv(StocksTable,encoding='utf-8-sig')
-        SSETable = '{}\\SZ{}.csv'.format(DataPath,EndDate)
-        KLineSSE.to_csv(SSETable,encoding='utf-8-sig')
-        logger.success('finish saving stock data')
-    except Exception as Error:
-        logger.error('meet error when saving stock data,Error:{}'.format(Error))
+    #write into stock table
+    #update_stock_table(TableName=TableName, Codes=SHCodes)
+    
     #------
-
+    
     #analysis
+    Table = '{}\\{}.csv'.format(DataPath,TableName)
+    Table = pd.read_csv(Table,encoding='gbk')
     try:
-        GoodStocks = is_recent_good(StocksTable)  
-        GoodStocks.to_csv(WorkPath+'\\good stocks.csv',encoding='utf-8-sig')
+        GoodStocks = is_recent_good(Table)  
+        GoodStocks.to_csv('{}\\good_stocks.csv'.format(ResultPath),encoding='gbk')
         logger.success("finish saving recent-good-stock table")
-    except Exception as Error:
-        logger.error('meet error when saving recent-good-stock table,Error:{}'.format(Error))
+    except Exception as Error:   
+        logger.error('meet error when saving recent-good-stock table,Error:{}, traceback:{}'.format(Error,traceback.format_exc()))
 
     try:
-        BadStocks = is_recent_bad(StocksTable) 
-        BadStocks.to_csv(WorkPath+'\\bad stocks.csv',encoding='utf-8-sig')
+        BadStocks = is_recent_bad(Table) 
+        BadStocks.to_csv('{}\\bad_stocks.csv'.format(ResultPath),encoding='gbk')
         logger.success("finish saving recent-bad-stock table")
     except Exception as Error:
         logger.error('meet error when saving recent-bad-stock table,Error:{}'.format(Error))
 
     try:
-        PulledUpStocks = is_recent_pulled_up(StocksTable)
-        PulledUpStocks.to_csv(WorkPath+'/pulled up stocks.csv',encoding='utf-8-sig')
+        PulledUpStocks = is_recent_pulled_up(Table)
+        PulledUpStocks.to_csv('{}\\pulled_up_stocks.csv'.format(ResultPath),encoding='gbk')
         logger.success("finish saving pulled-up-stock table")
     except Exception as Error:
         logger.error('meet error when saving pulled-up-stock table,Error:{}'.format(Error))
