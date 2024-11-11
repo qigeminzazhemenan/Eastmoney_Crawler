@@ -24,12 +24,11 @@ def is_recent_pulled_up(Table,Recent=5,ExceptDays=1):
         Mask = pd.concat([Mask1,Mask2],axis=1).all(axis=1)
         return Mask
 
-    KLines = pd.read_csv(Table)
-    Open = KLines.loc[:,'Open']
-    Close = KLines.loc[:,'Close']
-    Rate = KLines.loc[:,'Price Change Rate']
-    KLines['is_pulled_up'] = is_pulled_up(Open,Close,Rate)
-    Groups =KLines.groupby('Stock Code')
+    Open = Table.loc[:,'Open']
+    Close = Table.loc[:,'Close']
+    Rate = Table.loc[:,'Price Change Rate']
+    Table['is_pulled_up'] = is_pulled_up(Open,Close,Rate)
+    Groups =Table.groupby('Stock Code')
 
     Grpby = Groups.agg({'is_pulled_up':[('days',lambda x: np.sum(x.iloc[-Recent:]) )]})
     Mask = Grpby.loc[:,'is_pulled_up']['days'] >=Recent-ExceptDays
@@ -50,8 +49,7 @@ def is_recent_good(Table,Recent=5,Days=90):
     Days: length of days for comparison with Recent
     '''
 
-    KLines = pd.read_csv(Table)
-    Groups =KLines.groupby(['Stock Code','Date'])
+    Groups =Table.groupby(['Stock Code','Date'])
     
     #filter
     def CoV_first(Data,Cut,Days):return (np.var(Data.iloc[-Days:-Cut],ddof=1))**0.5/np.mean(Data.iloc[-Days:-Cut]) 
@@ -87,9 +85,8 @@ def is_recent_bad(Table,Recent=5,Days=90):
     Recent: what is 'recent days' (default since 5 days ago)
     Days: number of recent days used for comparison 
     '''
-
-    KLines = pd.read_csv(Table)
-    Groups =KLines.groupby('Stock Code')
+    
+    Groups =Table.groupby('Stock Code')
 
     #filters
     def CoV_last(Data,Cut):return (np.var(Data.iloc[-Cut:],ddof=1))**0.5/np.mean(Data.iloc[-Cut:]) 

@@ -1,13 +1,45 @@
-from urllib.parse import urlencode
+from pathlib import Path
+from loguru import logger
 import pandas as pd
+import json
 import requests
 import re
-from loguru import logger
+import time
+import datetime 
+import os
+from urllib.parse import urlencode
+from .utils import initalize_logger
 
-#log dir
-logger.add("log.log", rotation="1 MB")
+#initalize log location
+initalize_logger()
 
-#生成东方财富专用的secid
+#get paths
+WorkPath = str(Path(os.path.realpath(__file__)).parent.parent)
+DataPath = "{}\\Data".format(WorkPath)
+
+#get date range for kline data based on history record
+def get_date_range(TableName) -> dict:
+    EndDate = datetime.date.today()
+    #if exist hostory data, start from last day recorded
+    TablePath = '{}\\{}.json'.format(DataPath,TableName)
+    if os.path.exists(TablePath):
+        History = pd.read_json(TablePath)
+        StartDate = max(History.loc[:,'Date'])
+        #start from next day of last day in history
+        StartDate += datetime.timedelta(days=1)
+    else:
+    #if no history data, start from 365 days ago
+        Delta = datetime.timedelta(days=365)
+        StartDate = EndDate-Delta
+
+    StartDate = str(StartDate).replace('-','')
+    EndDate = str(EndDate).replace('-','')
+
+    return StartDate, EndDate
+
+
+
+#generate secid
 def gen_secid(RawCode: str) -> str:
     '''
     generate Eastmoney secid
@@ -28,11 +60,13 @@ def gen_secid(RawCode: str) -> str:
         return f'0.{RawCode}'
     # SSE stocks
     if RawCode[0] == '6':
-        return f'0.{RawCode}'
+        return f'1.{RawCode}' 
     # Shenzhen stocks
     if RawCode[0] == '0':
-        return f'1.{RawCode}'
+        return f'0.{RawCode}'
     
+
+
 #get kline data
 def get_k_history(Code: str, beg: str, end: str, klt: int = 101, adjust: int = 1) -> pd.DataFrame:
     '''
@@ -53,7 +87,13 @@ def get_k_history(Code: str, beg: str, end: str, klt: int = 101, adjust: int = 1
             adjust:0 no adjustment
             adjust:1 forward stock adjustment
             adjust:2 backward stock adjustment 
-    '''
+    '''  
+    EastmoneyHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 6.3; WOW64; Trident/7.0; Touch; rv:11.0) like Gecko',
+        'Accept': '*/*',
+        'Accept-Language': 'zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2',
+        'Referer': 'http://quote.eastmoney.com/center/gridlist.html'}
+    
     EastmoneyKlines = {
         'f51': 'Date',
         'f52': 'Open',
@@ -67,18 +107,11 @@ def get_k_history(Code: str, beg: str, end: str, klt: int = 101, adjust: int = 1
         'f60': 'Price Change',
         'f61': 'Turnover Ratio',
     }
-    
-    EastmoneyHeaders = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 6.3; WOW64; Trident/7.0; Touch; rv:11.0) like Gecko',
-        'Accept': '*/*',
-        'Accept-Language': 'zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2',
-        'Referer': 'http://quote.eastmoney.com/center/gridlist.html'}
-    
-    fields = list(EastmoneyKlines.keys())
+    fields2 = list(EastmoneyKlines.keys())
+    fields2 = ",".join(fields2)
     columns = list(EastmoneyKlines.values())
-    fields2 = ",".join(fields)
     secid = gen_secid(Code)
-    
+
     params = (
         ('fields1', 'f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13'),
         ('fields2', fields2),
@@ -93,9 +126,10 @@ def get_k_history(Code: str, beg: str, end: str, klt: int = 101, adjust: int = 1
     #get klines data
     try:
         BaseUrl = 'https://push2his.eastmoney.com/api/qt/stock/kline/get'
-        Url = BaseUrl+'?'+urlencode(params)
+        Url = '{}?{}'.format(BaseUrl,urlencode(params))
         JsonResponse: dict = requests.get(Url, headers=EastmoneyHeaders).json()
 
+        #if no data, try changing secid first
         if JsonResponse['data'] is None:
             if secid[0] == '0':
                 secid = f'1.{Code}'
@@ -106,39 +140,47 @@ def get_k_history(Code: str, beg: str, end: str, klt: int = 101, adjust: int = 1
             JsonResponse: dict = requests.get(Url, headers=EastmoneyHeaders).json()      
         
         # check if the stock exists, if do exist, add it into the table
-        if not(JsonResponse['data'] is None):
+        if JsonResponse['data'] is not None:
             Klines = JsonResponse['data']['klines']
             rows = []
             for Kline in Klines:
                 Kline = Kline.split(',')
                 rows.append(Kline)  
             result = pd.DataFrame(rows, columns=columns)
+   
+            #get other features ;ike name, type of industry and Dynamic P/E ratio
+            EastmoneyStocks = {
+            'f55':'Earnings Per Share',
+            'f58':'Trade Type',
+            'f127':'Industry Type',
+            'f128':'Segment Name',
+            'f162': 'P/E Ratio(dynamic)',
+            'f163':'P/E Ratio(static)',
+            'f167': 'P/B Ratio'
+            }
+            fields = list(EastmoneyStocks.keys())
+            fields = ",".join(fields)
+            columns = list(EastmoneyStocks.values())
+            secid = gen_secid(Code)
 
-            # if is stock, get its name, type of industry and Dynamic P/E ratio
-            if not(Code[:3] == '000'):
+            params = (
+            ('fields', fields),
+            ('rtntype', '6'),
+            ('secid', secid)
+            )
+            params = dict(params)
 
-                EastmoneyOtherInfo = {
-                'f55':'Earnings Per Share',
-                'f58':'Trade Type',
-                'f127':'Industry Type',
-                'f128':'Segment Name',
-                'f162': 'P/E Ratio(dynamic)',
-                'f163':'P/E Ratio(static)',
-                'f167': 'P/B Ratio'
-                }
-                Url2 = 'http://push2.eastmoney.com/api/qt/stock/get?fields=f58,f127,f162&secid=1.'+Code
-                JsonResponse2 = requests.get(Url2).json()
-                Data2 = JsonResponse2['data']
-                StockName = Data2["f58"]
-                StockType = Data2["f127"]
-
-                #in json, there's no '.' in PERatio number, so we use PERatio/100 here 
-                PERatio = Data2["f162"]/100
-                result.insert(result.shape[1],'P/E Ratio(dynamic)',PERatio)
-                result.insert(0,'Industry Type',StockType)
-                result.insert(0,'Stock Name',StockName)
-                result.insert(0,'Stock Code',Code)
-            
+            BaseUrl = 'http://push2.eastmoney.com/api/qt/stock/get'
+            Url2 = Url = '{}?{}'.format(BaseUrl,urlencode(params))
+            JsonResponse2 = requests.get(Url2).json()
+            Data2 = JsonResponse2['data']
+            StockName = Data2["f58"]
+            StockType = Data2["f127"]
+            PERatio = Data2["f162"]/100 #in json, there's no '.' in PERatio number, so we use PERatio/100 here 
+            result.insert(result.shape[1],'P/E Ratio(dynamic)',PERatio)
+            result.insert(0,'Industry Type',StockType)
+            result.insert(0,'Stock Name',StockName)
+            result.insert(0,'Stock Code',Code)
             return result
 
     #if error while aquiring a stock 
@@ -149,6 +191,7 @@ def get_k_history(Code: str, beg: str, end: str, klt: int = 101, adjust: int = 1
 
 #get number of foreign holders among top 10(not guaranteed accurate)
 def get_foreign_holder_amount(Code: str) ->pd.DataFrame:
+
     try:
         #get webpage
         BaseUrl = "https://emweb.securities.eastmoney.com/PC_HSF10/ShareholderResearch/Index?type=web&Code="
@@ -175,5 +218,46 @@ def get_foreign_holder_amount(Code: str) ->pd.DataFrame:
     
     except Exception as Error:
         logger.error('meet error when downloading info of stock {}, Error:{}'.format(Code,Error))
+
+
+
+#update history stock table (or create one if not exist)
+def update_stock_table(TableName:str, Codes:list, klt: int = 101, adjust: int = 1):
+    StartTime = time.time()
+
+    StartDate, EndDate = get_date_range(TableName)
+    KLines = pd.DataFrame()
+    for Code in Codes:
+        print(f'fetching kline data of: {Code} ')
+        KLineNew = get_k_history(Code, StartDate, EndDate)
+        KLines = pd.concat([KLines,KLineNew],ignore_index=True)
+
+    #TablePath = "{}\\{}.json".format(DataPath,TableName)
+    TablePath = "{}\\{}.csv".format(DataPath,TableName)
+    if os.path.exists(TablePath):
+        History = pd.read_csv(TablePath,encoding='gbk')
+        KLines = pd.concat([KLines,History],ignore_index=True)
     
-    
+    #adjust format
+    KLines.sort_values(by=['Stock Code','Date'],inplace=True)
+
+    try:
+        #KLines.to_json(TablePath,date_format='iso',orient='records')
+        KLines.to_csv(TablePath,index=False,encoding='gbk')
+        EndTime = time.time()
+        ElapsedTime = (StartTime-EndTime)/60
+        logger.success('finish saving table {}.csv, time spent:{}minutes'.format(TableName,ElapsedTime))
+    except Exception as Error:
+        logger.error('meet error when saving table {}.csv,Error:{}'.format(TableName,Error))
+
+    StockCodesPath = "{}\\{}_codes.json".format(DataPath,TableName)
+    if not os.path.exists(StockCodesPath):
+        try:
+            with open(StockCodesPath,'w') as File:
+                StockCodes = [str(i) for i in set(KLines.loc[:,'Stock Code'])]
+                StockCodes.sort()
+                json.dump(StockCodes,File)
+        except Exception as Error:
+            logger.error('meet error when saving Codes.json: {},Error:{}'.format(TableName,Error))
+
+
